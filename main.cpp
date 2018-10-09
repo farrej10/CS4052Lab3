@@ -1,177 +1,169 @@
-
+#define GLM_ENABLE_EXPERIMENTAL
 #include <GL/glew.h>
 #include <GL/freeglut.h>
-
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
+#include <glm/glm.hpp>
+#include <glm/gtx/transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 using namespace std;
 
-// Vertex Shader (for convenience, it is defined in the main here, but we will be using text files for shaders in future)
-// Note: Input to this shader is the vertex positions that we specified for the triangle. 
-// Note: gl_Position is a special built-in variable that is supposed to contain the vertex position (in X, Y, Z, W)
-// Since our triangle vertices were specified as vec3, we just set W to 1.0.
-
+//Vertex Shader
 static const char* pVS = "                                                    \n\
 #version 330                                                                  \n\
                                                                               \n\
 in vec3 vPosition;															  \n\
 in vec4 vColor;																  \n\
 out vec4 color;																 \n\
-                                                                              \n\
+uniform mat4 mat;                                                                              \n\
                                                                                \n\
 void main()                                                                     \n\
 {                                                                                \n\
-    gl_Position = vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
+    gl_Position = mat * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
 	color = vColor;							\n\
 }";
 
-static const char* pVS2 = "                                                    \n\
-#version 330                                                                  \n\
-                                                                              \n\
-in vec3 vPosition;															  \n\
-																 \n\
-                                                                              \n\
-                                                                               \n\
-void main()                                                                     \n\
-{                                                                                \n\
-    gl_Position = vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\							\n\
-}";
-
 // Fragment Shader
-// Note: no input in this shader, it just outputs the colour of all fragments, in this case set to red (format: R, G, B, A).
 static const char* pFS = "                                              \n\
 #version 330                                                            \n\
-in vec4 color;                                                            \n\
+in vec4 color;                                                           \n\
 out vec4 FragColor;                                                      \n\
                                                                           \n\
 void main()                                                               \n\
 {                                                                          \n\
-FragColor = color;									 \n\
+FragColor = color;															 \n\
 }";
+//location for uniform 
+GLuint ID = 0;
+//identity matrix
+float matrix[] = { 1, 0, 0, 0,
+0, 1, 0, 0,
+0, 0, 1, 0,
+0, 0, 0, 1 };
 
-// Fragment Shader
-// Note: no input in this shader, it just outputs the colour of all fragments, in this case set to red (format: R, G, B, A).
-static const char* pFS2 = "                                              \n\
-#version 330                                                            \n\
-                                                            \n\
-out vec4 FragColor;                                                      \n\
-                                                                          \n\
-void main()                                                               \n\
-{                                                                          \n\
-FragColor = vec4(1.0f,1.0f,0.0f,1.0f);									 \n\
-}";
+glm::mat4 mat;                                      //initialising for display
+glm::mat4 rotations = glm::make_mat4(matrix);       //rotation matrix
+glm::mat4 translations = glm::make_mat4(matrix);    //translation matrix
+glm::mat4 scaling = glm::make_mat4(matrix);		    //scaling matrix
 
-GLuint VAO[2];
+glm::mat4 mat2;                                      //initialising for display
+glm::mat4 rotations2 = glm::make_mat4(matrix);       //rotation matrix
+glm::mat4 translations2 = glm::make_mat4(matrix);    //translation matrix
+glm::mat4 scaling2 = glm::make_mat4(matrix);
+
 
 // Shader Functions- click on + to expand
 #pragma region SHADER_FUNCTIONS
 static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum ShaderType)
 {
 	// create a shader object
-    GLuint ShaderObj = glCreateShader(ShaderType);
+	GLuint ShaderObj = glCreateShader(ShaderType);
 
-    if (ShaderObj == 0) {
-        fprintf(stderr, "Error creating shader type %d\n", ShaderType);
-        exit(0);
-    }
+	if (ShaderObj == 0) {
+		fprintf(stderr, "Error creating shader type %d\n", ShaderType);
+		exit(0);
+	}
 	// Bind the source code to the shader, this happens before compilation
 	glShaderSource(ShaderObj, 1, (const GLchar**)&pShaderText, NULL);
 	// compile the shader and check for errors
-    glCompileShader(ShaderObj);
-    GLint success;
+	glCompileShader(ShaderObj);
+	GLint success;
 	// check for shader related errors using glGetShaderiv
-    glGetShaderiv(ShaderObj, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        GLchar InfoLog[1024];
-        glGetShaderInfoLog(ShaderObj, 1024, NULL, InfoLog);
-        fprintf(stderr, "Error compiling shader type %d: '%s'\n", ShaderType, InfoLog);
-        exit(1);
-    }
+	glGetShaderiv(ShaderObj, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		GLchar InfoLog[1024];
+		glGetShaderInfoLog(ShaderObj, 1024, NULL, InfoLog);
+		fprintf(stderr, "Error compiling shader type %d: '%s'\n", ShaderType, InfoLog);
+		exit(1);
+	}
 	// Attach the compiled shader object to the program object
-    glAttachShader(ShaderProgram, ShaderObj);
+	glAttachShader(ShaderProgram, ShaderObj);
 }
 
-GLuint CompileShaders(const char* vectorShader,const char* fragmentShader)
+GLuint CompileShaders(const char* vectorShader, const char* fragmentShader)
 {
 	//Start the process of setting up our shaders by creating a program ID
 	//Note: we will link all the shaders together into this ID
-    GLuint shaderProgramID = glCreateProgram();
-    if (shaderProgramID == 0) {
-        fprintf(stderr, "Error creating shader program\n");
-        exit(1);
-    }
+	GLuint shaderProgramID = glCreateProgram();
+	if (shaderProgramID == 0) {
+		fprintf(stderr, "Error creating shader program\n");
+		exit(1);
+	}
 
 	// Create two shader objects, one for the vertex, and one for the fragment shader
-    AddShader(shaderProgramID, vectorShader, GL_VERTEX_SHADER);
-    AddShader(shaderProgramID, fragmentShader, GL_FRAGMENT_SHADER);
+	AddShader(shaderProgramID, vectorShader, GL_VERTEX_SHADER);
+	AddShader(shaderProgramID, fragmentShader, GL_FRAGMENT_SHADER);
 
-    GLint Success = 0;
-    GLchar ErrorLog[1024] = { 0 };
+	GLint Success = 0;
+	GLchar ErrorLog[1024] = { 0 };
 
 
 	// After compiling all shader objects and attaching them to the program, we can finally link it
-    glLinkProgram(shaderProgramID);
+	glLinkProgram(shaderProgramID);
 	// check for program related errors using glGetProgramiv
-    glGetProgramiv(shaderProgramID, GL_LINK_STATUS, &Success);
+	glGetProgramiv(shaderProgramID, GL_LINK_STATUS, &Success);
 	if (Success == 0) {
 		glGetProgramInfoLog(shaderProgramID, sizeof(ErrorLog), NULL, ErrorLog);
 		fprintf(stderr, "Error linking shader program: '%s'\n", ErrorLog);
-        exit(1);
+		exit(1);
 	}
 
 	// program has been successfully linked but needs to be validated to check whether the program can execute given the current pipeline state
-    glValidateProgram(shaderProgramID);
+	glValidateProgram(shaderProgramID);
 	// check for program related errors using glGetProgramiv
-    glGetProgramiv(shaderProgramID, GL_VALIDATE_STATUS, &Success);
-    if (!Success) {
-        glGetProgramInfoLog(shaderProgramID, sizeof(ErrorLog), NULL, ErrorLog);
-        fprintf(stderr, "Invalid shader program: '%s'\n", ErrorLog);
-        exit(1);
-    }
+	glGetProgramiv(shaderProgramID, GL_VALIDATE_STATUS, &Success);
+	if (!Success) {
+		glGetProgramInfoLog(shaderProgramID, sizeof(ErrorLog), NULL, ErrorLog);
+		fprintf(stderr, "Invalid shader program: '%s'\n", ErrorLog);
+		exit(1);
+	}
 	// Finally, use the linked shader program
 	// Note: this program will stay in effect for all draw calls until you replace it with another or explicitly disable its use
-    glUseProgram(shaderProgramID);
+	glUseProgram(shaderProgramID);
 	return shaderProgramID;
 }
+
+
 #pragma endregion SHADER_FUNCTIONS
 
 // VBO Functions - click on + to expand
 #pragma region VBO_FUNCTIONS
 GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
-	GLuint numVertices = 3;
-	// Genderate 1 generic buffer object, called VBO
+
+	GLuint numVertices = 6;
+	//Genderate 1 generic buffer object, called VBO
 	GLuint VBO;
- 	glGenBuffers(1, &VBO);
+	glGenBuffers(1, &VBO);
 	// In OpenGL, we bind (make active) the handle to a target name and then execute commands on that target
 	// Buffer will contain an array of vertices 
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	// After binding, we now fill our object with data, everything in "Vertices" goes to the GPU
-	glBufferData(GL_ARRAY_BUFFER, numVertices*7*sizeof(GLfloat), NULL, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, numVertices * 7 * sizeof(GLfloat), NULL, GL_STATIC_DRAW);
 	// if you have more data besides vertices (e.g., vertex colours or normals), use glBufferSubData to tell the buffer when the vertices array ends and when the colors start
-	glBufferSubData (GL_ARRAY_BUFFER, 0, numVertices*3*sizeof(GLfloat), vertices);
-	glBufferSubData (GL_ARRAY_BUFFER, numVertices*3*sizeof(GLfloat), numVertices*4*sizeof(GLfloat), colors);
-
-return VBO;
+	glBufferSubData(GL_ARRAY_BUFFER, 0, numVertices * 3 * sizeof(GLfloat), vertices);
+	glBufferSubData(GL_ARRAY_BUFFER, numVertices * 3 * sizeof(GLfloat), numVertices * 4 * sizeof(GLfloat), colors);
+	return VBO;
 }
 
-void linkCurrentBuffertoShader(GLuint shaderProgramID){
-	GLuint numVertices = 3;
+
+
+void linkCurrentBuffertoShader(GLuint shaderProgramID) {
+
+	GLuint numVertices = 6;
 	// find the location of the variables that we will be using in the shader program
 	GLuint positionID = glGetAttribLocation(shaderProgramID, "vPosition");
 	GLuint colorID = glGetAttribLocation(shaderProgramID, "vColor");
 	// Have to enable this
 	glEnableVertexAttribArray(positionID);
 	// Tell it where to find the position data in the currently active buffer (at index positionID)
-    glVertexAttribPointer(positionID, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glVertexAttribPointer(positionID, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	// Similarly, for the color data.
 	glEnableVertexAttribArray(colorID);
-	glVertexAttribPointer(colorID, 4, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(numVertices*3*sizeof(GLfloat)));
+	glVertexAttribPointer(colorID, 4, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(numVertices * 3 * sizeof(GLfloat)));
 }
 #pragma endregion VBO_FUNCTIONS
 
@@ -179,16 +171,14 @@ void linkCurrentBuffertoShader(GLuint shaderProgramID){
 void display() {
 
 	glClear(GL_COLOR_BUFFER_BIT);
-	GLuint shaderProgramID1;
-	// NB: Make the call to draw the geometry in the currently activated vertex buffer. This is where the GPU starts to work!
-	glUseProgram(CompileShaders(pVS, pFS));
-	glBindVertexArray(VAO[0]);
+	//
+	mat = rotations * translations * scaling;
+	glUniformMatrix4fv(ID, 1, GL_TRUE, &mat[0][0]);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 
-
-	glUseProgram(CompileShaders(pVS2, pFS2));
-	glBindVertexArray(VAO[1]);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+	mat2 = rotations2 * translations2 * scaling2;
+	glUniformMatrix4fv(ID, 1, GL_TRUE, &mat2[0][0]);
+	glDrawArrays(GL_TRIANGLES, 3, 3);
 
 	glutSwapBuffers();
 
@@ -197,81 +187,146 @@ void display() {
 
 void init()
 {
-	// Create 3 vertices that make up a triangle that fits on the viewport
-	GLfloat vertices[] = { -1.0f, 0.1f, 0.0f,
-		0.0f, 1.0f, 0.0f,
-		1.0f, 0.1f, 0.0f };
 
-	GLfloat vertices2[] = { -1.0f, -0.1f, 0.0f,
-		0.0f, -1.0f, 0.0f,
-		1.0f, -0.1f, 0.0f };
+
+	// Create 3 vertices that make up a triangle that fits on the viewport 
+	GLfloat vertices[] = { -0.9f, -0.5f, 0.0f,
+		-0.1f, -0.5f, 0.0f,
+		-0.45f, 0.9f, 0.0f,
+		0.1f, -0.9f, 0.0f,
+		0.9f, -0.9f, 0.0f,
+		0.45f, 0.5f, 0.0f
+	};
 
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
 	GLfloat colors[] = { 0.0f, 1.0f, 0.0f, 1.0f,
 		1.0f, 0.0f, 0.0f, 1.0f,
-		0.0f, 0.0f, 1.0f, 1.0f };
+		0.0f, 0.0f, 1.0f, 1.0f,
+		0.0f, 1.0f, 0.0f, 1.0f,
+		1.0f, 0.0f, 0.0f, 1.0f,
+		0.0f, 0.0f, 1.0f, 1.0f
+	};
 
-
-	GLfloat colors2[] = { 0.0f, 0.0f, 0.0f, 0.0f,
-		0.0f, 0.0f, 0.0f, 0.0f,
-		0.0f, 0.0f, 0.0f, 0.0f };
 
 	// Set up the shaders
 	GLuint shaderProgramID = CompileShaders(pVS,pFS);
-
-	glGenVertexArrays(2, VAO);
-	glBindVertexArray(VAO[0]);
-
-	
-	// Put the vertices and colors into a vertex buffer object
 	generateObjectBuffer(vertices, colors);
-
-	// Link the current buffer to the shader
 	linkCurrentBuffertoShader(shaderProgramID);
 
-	shaderProgramID = CompileShaders(pVS2, pFS2);
-	glBindVertexArray(VAO[1]);
 
-
-	// Put the vertices and colors into a vertex buffer object
-	generateObjectBuffer(vertices2, colors2);
-
-	// Link the current buffer to the shader
-	linkCurrentBuffertoShader(shaderProgramID);
 
 }
 
-int main(int argc, char** argv){
+//function to get the key presses from user
+void keyPress(unsigned char key, int x, int y) {
+	//ROTATIONS 
+	//x
+	if (key == 'r') {
+		rotations = glm::rotate(rotations, 0.1f, glm::vec3(0.1f, 0.0f, 0.0f));
+	}
+	if (key == 't') {
+		rotations = glm::rotate(rotations, -0.1f, glm::vec3(0.1f, 0.0f, 0.0f));
+	}
+	//y
+	if (key == 'y') {
+		rotations = glm::rotate(rotations, 0.1f, glm::vec3(0.0f, 0.1f, 0.0f));
+	}
+	if (key == 'u') {
+		rotations = glm::rotate(rotations, -0.1f, glm::vec3(0.0f, 0.1f, 0.0f));
+	}
+	//z
+	if (key == 'e') {
+		rotations = glm::rotate(rotations, 0.1f, glm::vec3(0.0f, 0.0f, 0.1f));
+	}
+	if (key == 'q') {
+		rotations = glm::rotate(rotations,- 0.1f, glm::vec3(0.0f, 0.0f, 0.1f));
+	}
+
+	//TRANSLATIONS
+	//x
+	if (key == 'd') {
+		translations[0][3] = translations[0][3] + 0.1f;
+	}
+	if (key == 'a') {
+		translations[0][3] = translations[0][3] - 0.1f;
+	}
+
+	//y
+	if (key == 'w') {
+		translations[1][3] = translations[1][3] + 0.1f;
+	}
+	if (key == 's') {
+		translations[1][3] = translations[1][3] - 0.1f;
+	}
+
+	//z
+	if (key == 'z') {
+		translations[2][3] = translations[2][3] + 0.1f;
+	}
+	if (key == 'x') {
+		translations[2][3] = translations[2][3] - 0.1f;
+	}
+
+	//SCALING
+	//uniform                      scakes x y and z by 0.01
+	if (key == '-') {
+		scaling = glm::scale(scaling, glm::vec3(0.90f));
+	}
+	if (key == '=') {
+		scaling = glm::scale(scaling, glm::vec3(1.10f));
+	}
+	//non uniform                  scales x, y and z by different amounts
+	if (key == 'p') {
+		scaling = glm::scale(scaling, glm::vec3(0.80f, 0.7f, 0.0f));
+	}
+	if (key == 'o') {
+		scaling = glm::scale(scaling, glm::vec3(1.20f, 1.3f, 0.0f));
+	}
+	//COMBINED
+	if (key == ']') {
+		rotations = glm::rotate(rotations, 0.75f, glm::vec3(0.0f, 0.01f, 0.0f));
+		translations[0][3] = translations[0][3] + 0.5f;
+		scaling = glm::scale(scaling, glm::vec3(0.25f));
+	}
+
+	//MULTIPLE
+	if (key == '#') {
+		rotations = glm::rotate(rotations, 0.90f, glm::vec3(0.1f, 0.01f, 0.0f));
+		translations[0][3] = translations[0][3] + 0.05f;
+		scaling = glm::scale(scaling, glm::vec3(0.90f));
+
+		rotations2 = glm::rotate(rotations, 0.5f, glm::vec3(0.2f, 0.0f, 0.0f));
+		translations2[1][3] = translations[1][3] + 0.05f;
+		scaling2 = glm::scale(scaling, glm::vec3(0.95f));
+	}
+
+	display();
+
+}
+
+int main(int argc, char** argv) {
 
 	// Set up the window
 	glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
-    glutInitWindowSize(800, 600);
-    glutCreateWindow("Hello Triangle");
+	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
+	glutInitWindowSize(800, 600);
+	glutCreateWindow("Hello Triangle");
 	// Tell glut where the display function is
 	glutDisplayFunc(display);
+	glutKeyboardFunc(keyPress);            //tell glut where keyboard function is
 
-	 // A call to glewInit() must be done after glut is initialized!
-    GLenum res = glewInit();
+										   // A call to glewInit() must be done after glut is initialized!
+	GLenum res = glewInit();
 	// Check for any errors
-    if (res != GLEW_OK) {
-      fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
-      return 1;
-    }
+	if (res != GLEW_OK) {
+		fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
+		return 1;
+	}
 	// Set up your objects and shaders
+
 	init();
+
 	// Begin infinite event loop
 	glutMainLoop();
-    return 0;
+	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
