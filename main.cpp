@@ -1,62 +1,64 @@
-#define GLM_ENABLE_EXPERIMENTAL
+//Some Windows Headers (For Time, IO, etc.)
+#include <windows.h>
+#include <mmsystem.h>
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 #include <iostream>
-#include <glm/glm.hpp>
-#include <glm/gtx/transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
+
+//#include <glm/glm.hpp>
+//include <glm/gtx/transform.hpp>
+//#include <glm/gtc/type_ptr.hpp>
+
+
+#include "maths_funcs.h" //Anton's math class
+#include "teapot.h" // teapot mesh
+#include <string> 
+#include <fstream>
+#include <iostream>
+#include <sstream>
+
+
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
-
+float i = 0.0f;
 using namespace std;
+GLuint shaderProgramID;
 
-//Vertex Shader
-static const char* pVS = "                                                    \n\
-#version 330                                                                  \n\
-                                                                              \n\
-in vec3 vPosition;															  \n\
-in vec4 vColor;																  \n\
-out vec4 color;																 \n\
-uniform mat4 mat;                                                                              \n\
-                                                                               \n\
-void main()                                                                     \n\
-{                                                                                \n\
-    gl_Position = mat * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
-	color = vColor;							\n\
-}";
+unsigned int teapot_vao = 0;
+int width = 800.0;
+int height = 600.0;
+GLuint loc1;
+GLuint loc2;
 
-// Fragment Shader
-static const char* pFS = "                                              \n\
-#version 330                                                            \n\
-in vec4 color;                                                           \n\
-out vec4 FragColor;                                                      \n\
-                                                                          \n\
-void main()                                                               \n\
-{                                                                          \n\
-FragColor = color;															 \n\
-}";
-//location for uniform 
-GLuint ID = 0;
-//identity matrix
-float matrix[] = { 1, 0, 0, 0,
-0, 1, 0, 0,
-0, 0, 1, 0,
-0, 0, 0, 1 };
+mat4 ortho(float l, float r, float b, float t, float n, float f) {
 
-glm::mat4 mat;                                      //initialising for display
-glm::mat4 rotations = glm::make_mat4(matrix);       //rotation matrix
-glm::mat4 translations = glm::make_mat4(matrix);    //translation matrix
-glm::mat4 scaling = glm::make_mat4(matrix);		    //scaling matrix
-
-glm::mat4 mat2;                                      //initialising for display
-glm::mat4 rotations2 = glm::make_mat4(matrix);       //rotation matrix
-glm::mat4 translations2 = glm::make_mat4(matrix);    //translation matrix
-glm::mat4 scaling2 = glm::make_mat4(matrix);
-
+	return mat4(
+		(2.0 / (r - l)), 0.0f, 0.0f, 0.0f,
+		0.0f, (2.0f / (t - b)), 0.0f, 0.0f,
+		0.0f, 0.0f, (-2.0f / (f - n)), 0.0f,
+		-((r + l) / (r - l)), -((t + b) / (t - b)), -((f + n) / (f - n)), 1.0f
+	);
+}
 
 // Shader Functions- click on + to expand
 #pragma region SHADER_FUNCTIONS
+
+std::string readShaderSource(const std::string& fileName)
+{
+	std::ifstream file(fileName.c_str());
+	if (file.fail()) {
+		cout << "error loading shader called " << fileName;
+		exit(1);
+	}
+
+	std::stringstream stream;
+	stream << file.rdbuf();
+	file.close();
+
+	return stream.str();
+}
+
 static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum ShaderType)
 {
 	// create a shader object
@@ -66,8 +68,11 @@ static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum Shad
 		fprintf(stderr, "Error creating shader type %d\n", ShaderType);
 		exit(0);
 	}
+	std::string outShader = readShaderSource(pShaderText);
+	const char* pShaderSource = outShader.c_str();
+
 	// Bind the source code to the shader, this happens before compilation
-	glShaderSource(ShaderObj, 1, (const GLchar**)&pShaderText, NULL);
+	glShaderSource(ShaderObj, 1, (const GLchar**)&pShaderSource, NULL);
 	// compile the shader and check for errors
 	glCompileShader(ShaderObj);
 	GLint success;
@@ -83,19 +88,19 @@ static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum Shad
 	glAttachShader(ShaderProgram, ShaderObj);
 }
 
-GLuint CompileShaders(const char* vectorShader, const char* fragmentShader)
+GLuint CompileShaders()
 {
 	//Start the process of setting up our shaders by creating a program ID
 	//Note: we will link all the shaders together into this ID
-	GLuint shaderProgramID = glCreateProgram();
+	shaderProgramID = glCreateProgram();
 	if (shaderProgramID == 0) {
 		fprintf(stderr, "Error creating shader program\n");
 		exit(1);
 	}
 
 	// Create two shader objects, one for the vertex, and one for the fragment shader
-	AddShader(shaderProgramID, vectorShader, GL_VERTEX_SHADER);
-	AddShader(shaderProgramID, fragmentShader, GL_FRAGMENT_SHADER);
+	AddShader(shaderProgramID, "Z:/CS4052/Lab2/Lab 2/Shaders/simpleVertexShader.txt", GL_VERTEX_SHADER);
+	AddShader(shaderProgramID, "Z:/CS4052/Lab2/Lab 2/Shaders/simpleFragmentShader.txt", GL_FRAGMENT_SHADER);
 
 	GLint Success = 0;
 	GLchar ErrorLog[1024] = { 0 };
@@ -123,184 +128,165 @@ GLuint CompileShaders(const char* vectorShader, const char* fragmentShader)
 	// Finally, use the linked shader program
 	// Note: this program will stay in effect for all draw calls until you replace it with another or explicitly disable its use
 	glUseProgram(shaderProgramID);
+
 	return shaderProgramID;
 }
-
-
 #pragma endregion SHADER_FUNCTIONS
 
 // VBO Functions - click on + to expand
 #pragma region VBO_FUNCTIONS
-GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
 
-	GLuint numVertices = 6;
-	//Genderate 1 generic buffer object, called VBO
-	GLuint VBO;
-	glGenBuffers(1, &VBO);
-	// In OpenGL, we bind (make active) the handle to a target name and then execute commands on that target
-	// Buffer will contain an array of vertices 
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	// After binding, we now fill our object with data, everything in "Vertices" goes to the GPU
-	glBufferData(GL_ARRAY_BUFFER, numVertices * 7 * sizeof(GLfloat), NULL, GL_STATIC_DRAW);
-	// if you have more data besides vertices (e.g., vertex colours or normals), use glBufferSubData to tell the buffer when the vertices array ends and when the colors start
-	glBufferSubData(GL_ARRAY_BUFFER, 0, numVertices * 3 * sizeof(GLfloat), vertices);
-	glBufferSubData(GL_ARRAY_BUFFER, numVertices * 3 * sizeof(GLfloat), numVertices * 4 * sizeof(GLfloat), colors);
-	return VBO;
+
+
+
+
+void generateObjectBufferTeapot() {
+	GLuint vp_vbo = 0;
+
+	loc1 = glGetAttribLocation(shaderProgramID, "vertex_position");
+	loc2 = glGetAttribLocation(shaderProgramID, "vertex_normals");
+
+	glGenBuffers(1, &vp_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vp_vbo);
+	glBufferData(GL_ARRAY_BUFFER, 3 * teapot_vertex_count * sizeof(float), teapot_vertex_points, GL_STATIC_DRAW);
+	GLuint vn_vbo = 0;
+	glGenBuffers(1, &vn_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vn_vbo);
+	glBufferData(GL_ARRAY_BUFFER, 3 * teapot_vertex_count * sizeof(float), teapot_normals, GL_STATIC_DRAW);
+
+	glGenVertexArrays(1, &teapot_vao);
+	glBindVertexArray(teapot_vao);
+
+	glEnableVertexAttribArray(loc1);
+	glBindBuffer(GL_ARRAY_BUFFER, vp_vbo);
+	glVertexAttribPointer(loc1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+	glEnableVertexAttribArray(loc2);
+	glBindBuffer(GL_ARRAY_BUFFER, vn_vbo);
+	glVertexAttribPointer(loc2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 }
 
 
-
-void linkCurrentBuffertoShader(GLuint shaderProgramID) {
-
-	GLuint numVertices = 6;
-	// find the location of the variables that we will be using in the shader program
-	GLuint positionID = glGetAttribLocation(shaderProgramID, "vPosition");
-	GLuint colorID = glGetAttribLocation(shaderProgramID, "vColor");
-	// Have to enable this
-	glEnableVertexAttribArray(positionID);
-	// Tell it where to find the position data in the currently active buffer (at index positionID)
-	glVertexAttribPointer(positionID, 3, GL_FLOAT, GL_FALSE, 0, 0);
-	// Similarly, for the color data.
-	glEnableVertexAttribArray(colorID);
-	glVertexAttribPointer(colorID, 4, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(numVertices * 3 * sizeof(GLfloat)));
-}
 #pragma endregion VBO_FUNCTIONS
+
 
 
 void display() {
 
-	glClear(GL_COLOR_BUFFER_BIT);
-	//
-	mat = rotations * translations * scaling;
-	glUniformMatrix4fv(ID, 1, GL_TRUE, &mat[0][0]);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+	// tell GL to only draw onto a pixel if the shape is closer to the viewer
+	glEnable(GL_DEPTH_TEST); // enable depth-testing
+	glDepthFunc(GL_LESS); // depth-testing interprets a smaller value as "closer"
+	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glUseProgram(shaderProgramID);
 
-	mat2 = rotations2 * translations2 * scaling2;
-	glUniformMatrix4fv(ID, 1, GL_TRUE, &mat2[0][0]);
-	glDrawArrays(GL_TRIANGLES, 3, 3);
+
+	//Declare your uniform variables that will be used in your shader
+	int matrix_location = glGetUniformLocation(shaderProgramID, "model");
+	int view_mat_location = glGetUniformLocation(shaderProgramID, "view");
+	int proj_mat_location = glGetUniformLocation(shaderProgramID, "proj");
+
+
+	//Here is where the code for the viewport lab will go, to get you started I have drawn a t-pot in the bottom left
+	//The model transform rotates the object by 45 degrees, the view transform sets the camera at -40 on the z-axis, and the perspective projection is setup using Antons method
+
+	// bottom-left
+	mat4 view = translate(identity_mat4(), vec3(0.0, 0.0, -40.0));
+	mat4 persp_proj = perspective(45.0, 2000 / (float)height, 0.1, 100.0);
+	mat4 model = identity_mat4();
+
+	glViewport(0, 0, width / 2, height / 2);
+	glUniformMatrix4fv(proj_mat_location, 1, GL_FALSE, persp_proj.m);
+	glUniformMatrix4fv(view_mat_location, 1, GL_FALSE, view.m);
+	glUniformMatrix4fv(matrix_location, 1, GL_FALSE, model.m);
+	glDrawArrays(GL_TRIANGLES, 0, teapot_vertex_count);
+
+	// bottom-right
+	mat4 view2 = translate(identity_mat4(), vec3(0.0, 0.0, -40.0));
+	mat4 persp_proj2 = perspective(45.0, (float)width / 800, 0.1, 100.0);
+	mat4 model2 = identity_mat4();
+
+	glViewport(width / 2, 0, width / 2, height / 2);
+	glUniformMatrix4fv(proj_mat_location, 1, GL_FALSE, persp_proj2.m);
+	glUniformMatrix4fv(view_mat_location, 1, GL_FALSE, view2.m);
+	glUniformMatrix4fv(matrix_location, 1, GL_FALSE, model2.m);
+	glDrawArrays(GL_TRIANGLES, 0, teapot_vertex_count);
+
+	// top-left
+	mat4 lookatview = look_at(vec3(-60.0f, -30.0f, 30.0f), vec3(0.0f, 0.0f, 0.0f), vec3(0.0f, 0.1f, 0.0f));
+	mat4 model3 = identity_mat4();
+
+	glViewport(0, height / 2, width / 2, height / 2);
+	glUniformMatrix4fv(view_mat_location, 1, GL_FALSE, lookatview.m);
+	glUniformMatrix4fv(matrix_location, 1, GL_FALSE, model3.m);
+	glDrawArrays(GL_TRIANGLES, 0, teapot_vertex_count);
+
+	// top-right
+	i = i + 0.09;
+	mat4 view4 = translate(identity_mat4(), vec3(0.0, 0.0, -45.0));
+	mat4 persp_proj3 = perspective(45.0, (float)width / (float)height, 0.1, 100.0);
+	mat4 model4 = rotate_x_deg(identity_mat4(), 90);
+	model4 = rotate_z_deg(model4, i);
+	model4 = rotate_y_deg(model4, i);
+	model4 = rotate_x_deg(model4, i);
+
+
+	glViewport(width / 2, height / 2, width / 2, height / 2);
+	glUniformMatrix4fv(proj_mat_location, 1, GL_FALSE, persp_proj3.m);
+	glUniformMatrix4fv(view_mat_location, 1, GL_FALSE, view4.m);
+	glUniformMatrix4fv(matrix_location, 1, GL_FALSE, model4.m);
+	glDrawArrays(GL_TRIANGLES, 0, teapot_vertex_count);
+
+	// middle
+	mat4 view5 = translate(identity_mat4(), vec3(0.0, 0.0, 0.0));
+	mat4 ortho_proj5 = ortho(-1, 1, -1, 1, 50.0f, -50.0f);
+	mat4 model5 = rotate_x_deg(identity_mat4(), -0);
+	model5 = rotate_y_deg(identity_mat4(), 0);
+	model5 = scale(model5, vec3(0.05f, 0.05f,0.05f));
+
+	glViewport(200, 150, width / 2, height / 2);
+	glUniformMatrix4fv(proj_mat_location, 1, GL_FALSE, ortho_proj5.m);
+	glUniformMatrix4fv(view_mat_location, 1, GL_FALSE, view5.m);
+	glUniformMatrix4fv(matrix_location, 1, GL_FALSE, model5.m);
+	glDrawArrays(GL_TRIANGLES, 0, teapot_vertex_count);
+
+
 
 	glutSwapBuffers();
+}
 
+
+
+
+void updateScene() {
+
+	// Wait until at least 16ms passed since start of last frame (Effectively caps framerate at ~60fps)
+	static DWORD  last_time = 0;
+	DWORD  curr_time = timeGetTime();
+	float  delta = (curr_time - last_time) * 0.001f;
+	if (delta > 0.03f)
+		delta = 0.03f;
+	last_time = curr_time;
+
+	// Draw the next frame
+	glutPostRedisplay();
 }
 
 
 void init()
 {
-
-
 	// Create 3 vertices that make up a triangle that fits on the viewport 
-	GLfloat vertices[] = { -0.9f, -0.5f, 0.0f,
-		-0.1f, -0.5f, 0.0f,
-		-0.45f, 0.9f, 0.0f,
-		0.1f, -0.9f, 0.0f,
-		0.9f, -0.9f, 0.0f,
-		0.45f, 0.5f, 0.0f
-	};
-
+	GLfloat vertices[] = { -1.0f, -1.0f, 0.0f, 1.0,
+		1.0f, -1.0f, 0.0f, 1.0,
+		0.0f, 1.0f, 0.0f, 1.0 };
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
 	GLfloat colors[] = { 0.0f, 1.0f, 0.0f, 1.0f,
 		1.0f, 0.0f, 0.0f, 1.0f,
-		0.0f, 0.0f, 1.0f, 1.0f,
-		0.0f, 1.0f, 0.0f, 1.0f,
-		1.0f, 0.0f, 0.0f, 1.0f,
-		0.0f, 0.0f, 1.0f, 1.0f
-	};
-
-
+		0.0f, 0.0f, 1.0f, 1.0f };
 	// Set up the shaders
-	GLuint shaderProgramID = CompileShaders(pVS,pFS);
-	generateObjectBuffer(vertices, colors);
-	linkCurrentBuffertoShader(shaderProgramID);
+	GLuint shaderProgramID = CompileShaders();
 
-
-
-}
-
-//function to get the key presses from user
-void keyPress(unsigned char key, int x, int y) {
-	//ROTATIONS 
-	//x
-	if (key == 'r') {
-		rotations = glm::rotate(rotations, 0.1f, glm::vec3(0.1f, 0.0f, 0.0f));
-	}
-	if (key == 't') {
-		rotations = glm::rotate(rotations, -0.1f, glm::vec3(0.1f, 0.0f, 0.0f));
-	}
-	//y
-	if (key == 'y') {
-		rotations = glm::rotate(rotations, 0.1f, glm::vec3(0.0f, 0.1f, 0.0f));
-	}
-	if (key == 'u') {
-		rotations = glm::rotate(rotations, -0.1f, glm::vec3(0.0f, 0.1f, 0.0f));
-	}
-	//z
-	if (key == 'e') {
-		rotations = glm::rotate(rotations, 0.1f, glm::vec3(0.0f, 0.0f, 0.1f));
-	}
-	if (key == 'q') {
-		rotations = glm::rotate(rotations,- 0.1f, glm::vec3(0.0f, 0.0f, 0.1f));
-	}
-
-	//TRANSLATIONS
-	//x
-	if (key == 'd') {
-		translations[0][3] = translations[0][3] + 0.1f;
-	}
-	if (key == 'a') {
-		translations[0][3] = translations[0][3] - 0.1f;
-	}
-
-	//y
-	if (key == 'w') {
-		translations[1][3] = translations[1][3] + 0.1f;
-	}
-	if (key == 's') {
-		translations[1][3] = translations[1][3] - 0.1f;
-	}
-
-	//z
-	if (key == 'z') {
-		translations[2][3] = translations[2][3] + 0.1f;
-	}
-	if (key == 'x') {
-		translations[2][3] = translations[2][3] - 0.1f;
-	}
-
-	//SCALING
-	//uniform                      scakes x y and z by 0.01
-	if (key == '-') {
-		scaling = glm::scale(scaling, glm::vec3(0.90f));
-	}
-	if (key == '=') {
-		scaling = glm::scale(scaling, glm::vec3(1.10f));
-	}
-	//non uniform                  scales x, y and z by different amounts
-	if (key == 'p') {
-		scaling = glm::scale(scaling, glm::vec3(0.80f, 0.7f, 0.0f));
-	}
-	if (key == 'o') {
-		scaling = glm::scale(scaling, glm::vec3(1.20f, 1.3f, 0.0f));
-	}
-	//COMBINED
-	if (key == ']') {
-		rotations = glm::rotate(rotations, 0.75f, glm::vec3(0.0f, 0.01f, 0.0f));
-		translations[0][3] = translations[0][3] + 0.5f;
-		scaling = glm::scale(scaling, glm::vec3(0.25f));
-	}
-
-	//MULTIPLE
-	if (key == '#') {
-		rotations = glm::rotate(rotations, 0.90f, glm::vec3(0.1f, 0.01f, 0.0f));
-		translations[0][3] = translations[0][3] + 0.05f;
-		scaling = glm::scale(scaling, glm::vec3(0.90f));
-
-		rotations2 = glm::rotate(rotations, 0.5f, glm::vec3(0.2f, 0.0f, 0.0f));
-		translations2[1][3] = translations[1][3] + 0.05f;
-		scaling2 = glm::scale(scaling, glm::vec3(0.95f));
-	}
-
-	display();
+	// load teapot mesh into a vertex buffer array
+	generateObjectBufferTeapot();
 
 }
 
@@ -309,13 +295,14 @@ int main(int argc, char** argv) {
 	// Set up the window
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
-	glutInitWindowSize(800, 600);
-	glutCreateWindow("Hello Triangle");
+	glutInitWindowSize(width, height);
+	glutCreateWindow("Viewport Teapots");
 	// Tell glut where the display function is
 	glutDisplayFunc(display);
-	glutKeyboardFunc(keyPress);            //tell glut where keyboard function is
+	glutIdleFunc(updateScene);
 
-										   // A call to glewInit() must be done after glut is initialized!
+	// A call to glewInit() must be done after glut is initialized!
+	glewExperimental = GL_TRUE; //for non-lab machines, this line gives better modern GL support
 	GLenum res = glewInit();
 	// Check for any errors
 	if (res != GLEW_OK) {
@@ -323,9 +310,7 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 	// Set up your objects and shaders
-
 	init();
-
 	// Begin infinite event loop
 	glutMainLoop();
 	return 0;
